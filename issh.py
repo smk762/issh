@@ -7,10 +7,14 @@ import sys
 from signal import signal, SIGINT, SIGTERM
 
 
+class SSHConfigError(Exception):
+    """Raised when SSH config is missing or has no valid hosts."""
+    pass
+
+
 class ISSH:
 
     def __init__(self, screen):
-        print('[*] Initializing ISSH')
         signal(SIGINT, self.shutdown)
         signal(SIGTERM, self.shutdown)
 
@@ -19,9 +23,7 @@ class ISSH:
         self.check_if_ssh_config_exists()
         self.load_ssh_hosts()
         if not self.hosts:
-            curses.endwin()
-            print('No SSH hosts found in ' + self.ssh_config_path + '. Aborting.')
-            sys.exit(1)
+            raise SSHConfigError('No SSH hosts found in ' + self.ssh_config_path)
         self.active_choice = 0
 
         self.screen = screen
@@ -33,13 +35,11 @@ class ISSH:
 
     def check_if_ssh_config_exists(self):
         if not exists(self.ssh_config_path):
-            curses.endwin()
-            print('No SSH config file detected at ' + self.ssh_config_path + '. Aborting.')
-            sys.exit(1)
+            raise SSHConfigError('No SSH config file detected at ' + self.ssh_config_path)
 
     def load_ssh_hosts(self):
         self.hosts = list()
-        with open(self.ssh_config_path) as ssh_config:
+        with open(self.ssh_config_path, encoding='utf-8') as ssh_config:
             for line in ssh_config.readlines():
                 line = line.rstrip()
                 if len(line) == 0 or line[0] == ' ' or line[0] == '\t' or line.lstrip()[0] == '#' or line.find("*") > -1:
@@ -47,7 +47,7 @@ class ISSH:
                 try:
                     self.hosts.append(line.split()[1])
                 except IndexError:
-                    print(f"[-] Warning: Invalid host format detected on line: {line}")
+                    pass  # Skip malformed lines
         self.hosts.sort()
 
     def run(self):
@@ -64,43 +64,39 @@ class ISSH:
                     self.screen.addstr(i + num_header_rows, 0, f" > {host}", curses.color_pair(1) | curses.A_BOLD)
                 else:
                     self.screen.addstr(i + num_header_rows, 0, f"   {host}")
-            except:
-                # Suppress error if list is longer than window
-                pass
+            except curses.error:
+                # Stop rendering if list is longer than window
+                break
         self.screen.refresh()
 
     def input_loop(self):
         while True:
             self.print_options()
 
-            try:
-                char_ord = self.screen.getch()
-                char = chr(char_ord)
+            char_ord = self.screen.getch()
+            char = chr(char_ord) if 0 <= char_ord < 256 else ''
 
-                if char.upper() == 'Q' or char_ord == curses.ascii.ESC:  # Esc or Q
-                    self.shutdown()
-                elif char.upper() == 'J' or char_ord == curses.KEY_DOWN:  # Down or J
-                    if self.active_choice < len(self.hosts) - 1:
-                        self.active_choice += 1
-                elif char.upper() == 'K' or char_ord == curses.KEY_UP:  # Up or K
-                    if self.active_choice > 0:
-                        self.active_choice -= 1
-                elif char == 'g':  # Move to top
-                    self.active_choice = 0
-                elif char == 'G':  # Move to last item
-                    self.active_choice = len(self.hosts) - 1
-                elif char.upper() == 'E':
-                    self.launch_editor()
-                elif char.upper() == 'R':  # Refresh screen
-                    self.load_ssh_hosts()
-                elif char.upper() == 'H':  # Print help screen
-                    self.print_help_screen()
-                elif char_ord == curses.ascii.LF or char.upper() == 'L' or char_ord == curses.KEY_RIGHT:  # Enter, L or Right
-                    # Choice has been selected already, exit the menu system
-                    break
-            except Exception as e:
-                print('[-] Invalid keypress detected.')
-                print(e)
+            if char_ord == curses.KEY_DOWN or char.upper() == 'J':  # Down or J
+                if self.active_choice < len(self.hosts) - 1:
+                    self.active_choice += 1
+            elif char_ord == curses.KEY_UP or char.upper() == 'K':  # Up or K
+                if self.active_choice > 0:
+                    self.active_choice -= 1
+            elif char_ord == curses.KEY_RIGHT or char_ord == curses.ascii.LF or char.upper() == 'L':  # Right, Enter or L
+                # Choice has been selected, exit the menu system
+                break
+            elif char_ord == curses.ascii.ESC or char.upper() == 'Q':  # Esc or Q
+                self.shutdown()
+            elif char == 'g':  # Move to top
+                self.active_choice = 0
+            elif char == 'G':  # Move to last item
+                self.active_choice = len(self.hosts) - 1
+            elif char.upper() == 'E':
+                self.launch_editor()
+            elif char.upper() == 'R':  # Refresh screen
+                self.load_ssh_hosts()
+            elif char.upper() == 'H':  # Print help screen
+                self.print_help_screen()
 
         # After breaking out of loop, ssh to the active target
         self.cleanup_curses()
@@ -153,7 +149,11 @@ def main_wrapper(main_screen):
 
 
 def main():
-    curses.wrapper(main_wrapper)
+    try:
+        curses.wrapper(main_wrapper)
+    except SSHConfigError as e:
+        print(str(e) + '. Aborting.')
+        sys.exit(1)
 
 
 if __name__ == '__main__':
