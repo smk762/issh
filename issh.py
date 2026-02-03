@@ -1,7 +1,8 @@
 import curses
 import curses.ascii
-from os import system, environ
+from os import environ
 from os.path import join, expanduser, exists
+import subprocess
 import sys
 from signal import signal, SIGINT, SIGTERM
 
@@ -17,6 +18,10 @@ class ISSH:
         self.ssh_config_path = join(expanduser("~"), ".ssh", "config")
         self.check_if_ssh_config_exists()
         self.load_ssh_hosts()
+        if not self.hosts:
+            curses.endwin()
+            print('No SSH hosts found in ' + self.ssh_config_path + '. Aborting.')
+            sys.exit(1)
         self.active_choice = 0
 
         self.screen = screen
@@ -99,7 +104,7 @@ class ISSH:
 
         # After breaking out of loop, ssh to the active target
         self.cleanup_curses()
-        system(f"ssh {self.hosts[self.active_choice]}")
+        subprocess.run(["ssh", self.hosts[self.active_choice]])
 
     def cleanup_curses(self):
         self.screen.keypad(0)
@@ -107,7 +112,7 @@ class ISSH:
         curses.echo()
         curses.endwin()
 
-    def shutdown(self):
+    def shutdown(self, signum=None, frame=None):
         self.cleanup_curses()
         sys.exit(0)
 
@@ -120,7 +125,7 @@ class ISSH:
                 editor = 'nano'
             elif 'linux' in sys.platform:
                 editor = 'vi'
-        system(f"{editor} {self.ssh_config_path}")
+        subprocess.run([editor, self.ssh_config_path])
         self.load_ssh_hosts()  # Reload hosts after changes
 
     def print_help_screen(self):

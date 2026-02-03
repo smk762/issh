@@ -22,9 +22,7 @@ setup(
     }
     ,
     zip_safe=False,
-    install_requires=[
-        requirements,
-    ],
+    install_requires=requirements,
     classifiers=[
         'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
     ],
