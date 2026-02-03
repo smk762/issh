@@ -2,6 +2,7 @@ import curses
 import curses.ascii
 from os import environ
 from os.path import join, expanduser, exists
+import shlex
 import subprocess
 import sys
 from signal import signal, SIGINT, SIGTERM
@@ -19,7 +20,7 @@ class ISSH:
         signal(SIGTERM, self.shutdown)
 
         self.hosts = list()
-        self.ssh_config_path = join(expanduser("~"), ".ssh", "config")
+        self.ssh_config_path = environ.get('ISSH_CONFIG', join(expanduser("~"), ".ssh", "config"))
         self.check_if_ssh_config_exists()
         self.load_ssh_hosts()
         if not self.hosts:
@@ -83,8 +84,7 @@ class ISSH:
                 if self.active_choice > 0:
                     self.active_choice -= 1
             elif char_ord == curses.KEY_RIGHT or char_ord == curses.ascii.LF or char.upper() == 'L':  # Right, Enter or L
-                # Choice has been selected, exit the menu system
-                break
+                self.connect_to_host()
             elif char_ord == curses.ascii.ESC or char.upper() == 'Q':  # Esc or Q
                 self.shutdown()
             elif char == 'g':  # Move to top
@@ -98,15 +98,22 @@ class ISSH:
             elif char.upper() == 'H':  # Print help screen
                 self.print_help_screen()
 
-        # After breaking out of loop, ssh to the active target
+    def connect_to_host(self):
+        """Connect to selected host and return to menu when done."""
         self.cleanup_curses()
         subprocess.run(["ssh", self.hosts[self.active_choice]])
+        self.reinit_curses()
 
     def cleanup_curses(self):
         self.screen.keypad(0)
         curses.curs_set(1)
         curses.echo()
         curses.endwin()
+
+    def reinit_curses(self):
+        self.screen.keypad(1)
+        curses.curs_set(0)
+        curses.noecho()
 
     def shutdown(self, signum=None, frame=None):
         self.cleanup_curses()
@@ -121,7 +128,8 @@ class ISSH:
                 editor = 'nano'
             elif 'linux' in sys.platform:
                 editor = 'vi'
-        subprocess.run([editor, self.ssh_config_path])
+        editor_cmd = shlex.split(editor) + [self.ssh_config_path]
+        subprocess.run(editor_cmd)
         self.load_ssh_hosts()  # Reload hosts after changes
 
     def print_help_screen(self):
